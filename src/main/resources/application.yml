@@ -1,0 +1,64 @@
+server:
+  port: ${PORT:8081}
+
+spring:
+  application:
+    name: evacs-control-api
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:33306}/${DB_NAME:evacs}?sslMode=${DB_SSL_MODE:DISABLED}&connectionTimeZone=UTC&forceConnectionTimeZoneToSet=true&characterEncoding=UTF-8
+    username: ${DB_USERNAME:evacs}
+    password: ${DB_PASSWORD:evacs}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${DDL_AUTO:validate}
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6402}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+evacs:
+  redis:
+    # evacs-ws-server가 쓰는 키와 반드시 같은 값이어야 한다.
+    # ws-server는 HSET(필드=vehicleId)으로 이 '해시'를 갱신한다(RedisEventPublisher.hsetIfNewer).
+    # ws-server의 '위치 스트림'(EVACS_LOCATION_STREAM, 예: stream:vehicle:location)을
+    # 여기에 넣으면 HGETALL이 WRONGTYPE으로 깨진다 — 스트림 키가 아니라 스냅샷 해시 키다.
+    location-snapshot-key: ${EVACS_LOCATION_SNAPSHOT_KEY:evacs:vehicle:location}
+    # Emergency Worker가 긴급차량의 영향 셀(cone)과 알림 수신 차량을 기록하는 키 패턴.
+    cone-key-pattern: ${EVACS_CONE_KEY_PATTERN:evacs:emergency:%s:cone}
+    alert-key-pattern: ${EVACS_ALERT_KEY_PATTERN:evacs:emergency:%s:alerted}
+    # OutboxProcessor가 긴급상황 이벤트를 발행하는 스트림.
+    emergency-stream: ${EVACS_EMERGENCY_STREAM:evacs:stream:emergency-event}
+    emergency-stream-maxlen: ${EVACS_EMERGENCY_STREAM_MAXLEN:10000}
+  vehicle:
+    # 스냅샷 해시는 TTL이 없어 떠난 차량의 마지막 위치가 남는다.
+    # occurredAt이 이 값보다 오래된 항목은 "활성 차량"에서 제외한다.
+    stale-after-seconds: ${EVACS_VEHICLE_STALE_AFTER_SECONDS:30}
+    default-density-resolution: ${EVACS_DENSITY_RESOLUTION:9}
+  outbox:
+    enabled: ${EVACS_OUTBOX_ENABLED:true}
+    poll-interval-ms: ${EVACS_OUTBOX_POLL_INTERVAL_MS:1000}
+    batch-size: ${EVACS_OUTBOX_BATCH_SIZE:100}
+    max-attempts: ${EVACS_OUTBOX_MAX_ATTEMPTS:5}
+
+logging:
+  level:
+    com.evacs.control: DEBUG

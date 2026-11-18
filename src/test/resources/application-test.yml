@@ -1,0 +1,29 @@
+# 테스트 프로파일. docker/compose.yml로 띄운 MySQL(33306)·Redis(6402)를 그대로 쓴다.
+# 키는 'test:' 접두사로 분리해 개발용 데이터와 섞이지 않게 한다.
+#
+# 파일명이 application.yml이면 main의 application.yml을 '덮는 것이 아니라 가려서'
+# evacs.* 기본값이 통째로 사라진다. 프로파일 파일로 두어 main 설정 위에 병합되게 한다.
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:33306}/${DB_NAME:evacs}?sslMode=${DB_SSL_MODE:DISABLED}&connectionTimeZone=UTC&forceConnectionTimeZoneToSet=true&characterEncoding=UTF-8
+    username: ${DB_USERNAME:evacs}
+    password: ${DB_PASSWORD:evacs}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6402}
+
+evacs:
+  redis:
+    location-snapshot-key: test:evacs:vehicle:location
+    cone-key-pattern: "test:evacs:emergency:%s:cone"
+    alert-key-pattern: "test:evacs:emergency:%s:alerted"
+    emergency-stream: test:evacs:stream:emergency-event
+  outbox:
+    enabled: true
+    poll-interval-ms: 200
+
+logging:
+  level:
+    com.evacs.control: DEBUG
+    org.hibernate.SQL: WARN

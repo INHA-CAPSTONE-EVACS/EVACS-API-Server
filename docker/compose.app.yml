@@ -1,0 +1,32 @@
+# 앱 컨테이너. 네트워크는 호스트 공유(network_mode: host)다.
+#   docker compose -f docker/compose.yml -f docker/compose.app.yml up -d --build
+# 프로젝트명은 compose.yml과 같게 둬서 한 프로젝트로 묶인다.
+#
+# 주의: host 네트워크에서는 `ports:` 매핑이 무시되므로 앱은 호스트의 ${PORT}(기본 8081)를
+# 그대로 점유한다. 그리고 컨테이너의 127.0.0.1이 곧 호스트이므로 의존 서비스는
+# compose.yml이 호스트에 퍼블리시한 포트(MySQL 33306 / Redis 6402)로 그냥 붙는다.
+#
+# macOS/Windows의 Docker Desktop은 host 네트워킹이 기본 비활성이다
+# (Settings → Resources → Network → "Enable host networking"). 꺼져 있으면 bridge로 동작해
+# 127.0.0.1이 컨테이너 자신을 가리키므로, 그때는 DB_HOST/REDIS_HOST를
+# host.docker.internal로 넘긴다(README "이미지로 실행" 참고).
+name: evacs-api
+
+services:
+  app:
+    build:
+      # Dockerfile은 레포 루트에 있다.
+      context: ..
+      dockerfile: Dockerfile
+    image: evacs-api:local
+    container_name: evacs_api_app
+    network_mode: host
+    env_file:
+      # env_file 경로는 compose 파일 디렉터리(docker/) 기준이다 — 레포 루트의 .env는 ../.env.
+      - ../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

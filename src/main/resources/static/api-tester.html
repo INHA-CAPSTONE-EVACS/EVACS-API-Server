@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EVACS 관제 API 테스터</title>
+<style>
+  :root { --bg:#11151c; --panel:#1a2029; --line:#2b3340; --fg:#e6e9ef; --dim:#8d99ab; --ok:#4ade80; --warn:#fbbf24; --err:#f87171; --acc:#60a5fa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--bg); color:var(--fg); }
+  header { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0 12px 0 0; font-weight:600; }
+  input, select, textarea, button { font:inherit; color:var(--fg); background:#0d1117; border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  input:focus, textarea:focus, select:focus { outline:1px solid var(--acc); }
+  button { background:#223047; cursor:pointer; }
+  button:hover { background:#2c3e5c; }
+  button.send { background:#1d4ed8; border-color:#1d4ed8; font-weight:600; }
+  button.send:hover { background:#2563eb; }
+  main { display:grid; grid-template-columns: 420px 1fr; gap:0; height:calc(100vh - 53px); }
+  #list { border-right:1px solid var(--line); overflow:auto; padding:10px; }
+  .ep { border:1px solid var(--line); border-radius:8px; margin-bottom:8px; background:var(--panel); }
+  .ep > summary { cursor:pointer; padding:8px 10px; display:flex; gap:8px; align-items:center; list-style:none; }
+  .ep > summary::-webkit-details-marker { display:none; }
+  .m { font-size:11px; font-weight:700; border-radius:4px; padding:2px 6px; min-width:44px; text-align:center; }
+  .m.GET { background:#14532d; color:#86efac; }
+  .m.POST { background:#78350f; color:#fcd34d; }
+  .path { color:var(--fg); }
+  .desc { color:var(--dim); font-size:12px; margin-left:auto; }
+  .body { padding:0 10px 10px; display:grid; gap:6px; }
+  .row { display:grid; grid-template-columns:130px 1fr; gap:8px; align-items:center; }
+  .row label { color:var(--dim); font-size:12px; }
+  textarea { min-height:150px; resize:vertical; }
+  #out { padding:12px 14px; overflow:auto; }
+  #meta { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .pill { border:1px solid var(--line); border-radius:999px; padding:3px 10px; font-size:12px; color:var(--dim); }
+  .s2xx { color:var(--ok); border-color:#166534; }
+  .s4xx { color:var(--warn); border-color:#854d0e; }
+  .s5xx, .serr { color:var(--err); border-color:#7f1d1d; }
+  pre { margin:0; white-space:pre-wrap; word-break:break-all; background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:12px; }
+  #req { color:var(--dim); font-size:12px; margin-bottom:8px; }
+  .hint { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>EVACS 관제 API 테스터</h1>
+  <label class="hint">Base URL</label>
+  <input id="base" size="30" value="" placeholder="예: http://127.0.0.1:8081" />
+  <span class="hint">비워 두면 이 페이지를 서빙한 서버로 보낸다(CORS 없음).</span>
+</header>
+
+<main>
+  <section id="list"></section>
+  <section id="out">
+    <div id="req">아직 요청을 보내지 않았습니다.</div>
+    <div id="meta"></div>
+    <pre id="resp">—</pre>
+  </section>
+</main>
+
+<script>
+// 엔드포인트 정의. params는 쿼리스트링, path는 URL 치환, body는 JSON 본문.
+const ENDPOINTS = [
+  { m:'GET', path:'/actuator/health', desc:'헬스체크' },
+
+  { m:'GET', path:'/control/vehicles', desc:'차량 목록',
+    params:[
+      { name:'vehicleType', ph:'NORMAL | EMERGENCY' },
+      { name:'includeStale', ph:'true | false' },
+      { name:'minLat', ph:'37.4' }, { name:'maxLat', ph:'37.6' },
+      { name:'minLng', ph:'126.6' }, { name:'maxLng', ph:'126.8' },
+    ] },
+  { m:'GET', path:'/control/vehicles/summary', desc:'유형별 활성 차량 수' },
+  { m:'GET', path:'/control/vehicles/density', desc:'H3 셀별 밀도',
+    params:[
+      { name:'resolution', ph:'0~15 (기본 9)' },
+      { name:'vehicleType', ph:'NORMAL | EMERGENCY' },
+      { name:'minLat', ph:'37.4' }, { name:'maxLat', ph:'37.6' },
+      { name:'minLng', ph:'126.6' }, { name:'maxLng', ph:'126.8' },
+    ] },
+  { m:'GET', path:'/control/vehicles/{vehicleId}', desc:'차량 단건',
+    path_params:[ { name:'vehicleId', ph:'AMB_001' } ] },
+
+  { m:'GET', path:'/control/emergencies', desc:'긴급상황 목록',
+    params:[
+      { name:'status', ph:'ACTIVE | ENDED' },
+      { name:'vehicleId', ph:'AMB_001' },
+      { name:'from', ph:'2026-01-01T00:00:00Z' },
+      { name:'to', ph:'2026-12-31T23:59:59Z' },
+      { name:'limit', ph:'1~500 (기본 100)' },
+    ] },
+  { m:'POST', path:'/control/emergencies', desc:'긴급상황 생성 (201 / 중복 409)',
+    body: {
+      vehicleId:'AMB_001',
+      emergencyType:'FIRE',
+      originLat:37.45, originLng:126.65,
+      destinationLat:37.55, destinationLng:126.75,
+      description:'테스트 출동',
+      route:[
+        { latitude:37.45, longitude:126.65, sequence:0, etaSeconds:0 },
+        { latitude:37.50, longitude:126.70, sequence:1, etaSeconds:120 }
+      ]
+    } },
+  { m:'GET', path:'/control/emergencies/{id}', desc:'긴급상황 상세',
+    path_params:[ { name:'id', ph:'UUID' } ] },
+  { m:'POST', path:'/control/emergencies/{id}/end', desc:'종료 (이미 종료면 409)',
+    path_params:[ { name:'id', ph:'UUID' } ] },
+  { m:'GET', path:'/control/emergencies/{id}/route', desc:'경로 지점',
+    path_params:[ { name:'id', ph:'UUID' } ] },
+  { m:'GET', path:'/control/emergencies/{id}/events', desc:'이벤트 전송 이력',
+    path_params:[ { name:'id', ph:'UUID' } ] },
+  { m:'GET', path:'/control/emergencies/{id}/cone', desc:'영향 H3 셀 (미계산이면 available=false)',
+    path_params:[ { name:'id', ph:'UUID' } ] },
+  { m:'GET', path:'/control/emergencies/{id}/alerted-vehicles', desc:'알림 수신 차량',
+    path_params:[ { name:'id', ph:'UUID' } ] },
+];
+
+const $list = document.getElementById('list');
+const $req = document.getElementById('req');
+const $meta = document.getElementById('meta');
+const $resp = document.getElementById('resp');
+
+// 마지막으로 만든 긴급상황 id를 기억해 {id} 칸에 자동으로 채워 준다.
+let lastEmergencyId = null;
+
+ENDPOINTS.forEach((ep, i) => {
+  const d = document.createElement('details');
+  d.className = 'ep';
+  d.dataset.index = i;
+
+  const rows = [];
+  (ep.path_params || []).forEach(p => {
+    rows.push(`<div class="row"><label>${p.name} *</label>
+      <input data-kind="path" data-name="${p.name}" placeholder="${p.ph || ''}" /></div>`);
+  });
+  (ep.params || []).forEach(p => {
+    rows.push(`<div class="row"><label>?${p.name}</label>
+      <input data-kind="query" data-name="${p.name}" placeholder="${p.ph || ''}" /></div>`);
+  });
+  if (ep.body) {
+    rows.push(`<div class="row" style="grid-template-columns:1fr"><label>JSON 본문</label></div>
+      <textarea data-kind="body">${JSON.stringify(ep.body, null, 2)}</textarea>`);
+  }
+
+  d.innerHTML = `
+    <summary><span class="m ${ep.m}">${ep.m}</span><span class="path">${ep.path}</span>
+      <span class="desc">${ep.desc || ''}</span></summary>
+    <div class="body">
+      ${rows.join('\n')}
+      <div><button class="send">보내기</button></div>
+    </div>`;
+  $list.appendChild(d);
+
+  d.querySelector('.send').addEventListener('click', () => send(ep, d));
+  // {id} 칸은 열 때 마지막 생성 id로 채운다.
+  d.addEventListener('toggle', () => {
+    if (!d.open || !lastEmergencyId) return;
+    const idInput = d.querySelector('input[data-kind="path"][data-name="id"]');
+    if (idInput && !idInput.value) idInput.value = lastEmergencyId;
+  });
+});
+
+function baseUrl() {
+  return document.getElementById('base').value.trim().replace(/\/$/, '');
+}
+
+async function send(ep, el) {
+  let path = ep.path;
+  for (const input of el.querySelectorAll('input[data-kind="path"]')) {
+    // 비어 있는 {id} 칸은 마지막으로 생성/조회한 긴급상황 id로 채워 준다.
+    if (!input.value.trim() && input.dataset.name === 'id' && lastEmergencyId) {
+      input.value = lastEmergencyId;
+    }
+    const v = input.value.trim();
+    if (!v) { show('error', `경로 변수 ${input.dataset.name}를 채워 주세요.`, ep.m + ' ' + ep.path); return; }
+    path = path.replace('{' + input.dataset.name + '}', encodeURIComponent(v));
+  }
+
+  const qs = new URLSearchParams();
+  for (const input of el.querySelectorAll('input[data-kind="query"]')) {
+    const v = input.value.trim();
+    if (v !== '') qs.append(input.dataset.name, v);
+  }
+  const url = baseUrl() + path + (qs.toString() ? '?' + qs : '');
+
+  const init = { method: ep.m, headers: { 'Accept': 'application/json' } };
+  const bodyEl = el.querySelector('textarea[data-kind="body"]');
+  if (bodyEl) {
+    try { JSON.parse(bodyEl.value); }
+    catch (e) { show('error', 'JSON 본문 파싱 실패: ' + e.message, ep.m + ' ' + url); return; }
+    init.headers['Content-Type'] = 'application/json';
+    init.body = bodyEl.value;
+  }
+
+  $req.textContent = `${ep.m} ${url} … 요청 중`;
+  $meta.innerHTML = '';
+  $resp.textContent = '…';
+
+  const started = performance.now();
+  try {
+    const res = await fetch(url, init);
+    const ms = Math.round(performance.now() - started);
+    const text = await res.text();
+    let pretty = text, parsed = null;
+    try { parsed = JSON.parse(text); pretty = JSON.stringify(parsed, null, 2); } catch (_) {}
+
+    // 생성/목록 응답에서 본 id를 기억해 두면 상세·종료 호출에 그대로 쓸 수 있다.
+    const seenId = parsed && (typeof parsed.id === 'string' ? parsed.id
+      : (Array.isArray(parsed.emergencies) && parsed.emergencies[0] ? parsed.emergencies[0].id : null));
+    if (typeof seenId === 'string' && seenId) lastEmergencyId = seenId;
+
+    const cls = res.ok ? 's2xx' : (res.status >= 500 ? 's5xx' : 's4xx');
+    $req.textContent = `${ep.m} ${url}`;
+    $meta.innerHTML = `
+      <span class="pill ${cls}">${res.status} ${res.statusText}</span>
+      <span class="pill">${ms} ms</span>
+      <span class="pill">${(res.headers.get('content-type') || '-').split(';')[0]}</span>
+      <span class="pill">${text.length} bytes</span>`;
+    $resp.textContent = pretty === '' ? '(본문 없음)' : pretty;
+  } catch (e) {
+    // fetch 자체가 실패하면 서버가 안 떠 있거나 Base URL이 다른 오리진(CORS)이다.
+    show('error', `요청 실패: ${e.message}\n\n- 서버가 떠 있는지\n- Base URL이 맞는지(비우면 같은 오리진)\n- 다른 오리진이면 CORS 설정이 필요하다`, `${ep.m} ${url}`);
+  }
+}
+
+function show(kind, message, reqLine) {
+  $req.textContent = reqLine || '';
+  $meta.innerHTML = `<span class="pill serr">${kind}</span>`;
+  $resp.textContent = message;
+}
+</script>
+</body>
+</html>
