@@ -1,19 +1,27 @@
 # 빌드 컨텍스트는 레포 루트다:
-#   docker build -t evacs-api-server .
+#   docker build -t seoki/evacs-api:latest .
+#   docker buildx build --platform linux/amd64,linux/arm64 -t seoki/evacs-api:latest --push .
 #
 # 1단계: gradle wrapper로 부트 jar를 만든다(호스트 JDK/gradle 불필요).
-FROM eclipse-temurin:17-jdk AS build
+# --platform=$BUILDPLATFORM: 이 단계는 **항상 빌드 머신의 네이티브 아키텍처로** 돌린다.
+# jar는 바이트코드라 아키텍처에 독립적이므로 교차 빌드할 이유가 없다. 이걸 빼면
+# Apple Silicon에서 linux/amd64 이미지를 만들 때 Gradle 전체가 QEMU 에뮬레이션으로
+# 돌아가 2~3분 빌드가 20분 이상으로 늘어난다.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk AS build
 WORKDIR /workspace
 
-# 의존성 해석만 먼저 캐싱한다 — src 변경에 전체 다운로드가 다시 돌지 않게.
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle gradle
-RUN chmod +x gradlew && ./gradlew --no-daemon dependencies > /dev/null 2>&1 || true
+RUN chmod +x gradlew
 
 COPY src src
 # 테스트는 MySQL·Redis가 필요하므로 이미지 빌드에서는 돌리지 않는다(호스트에서 ./gradlew test).
-RUN ./gradlew --no-daemon clean bootJar -x test \
- && cp build/libs/*.jar /workspace/app.jar
+# 캐시 마운트로 의존성과 Gradle 산출물을 빌드 간에 재사용한다 — 없으면 매번 전부 다시 받는다.
+# clean은 넣지 않는다(컨테이너가 매번 새 FS라 할 일이 없고 캐시만 버린다).
+RUN --mount=type=cache,target=/root/.gradle,sharing=locked \
+    --mount=type=cache,target=/workspace/build,sharing=locked \
+    ./gradlew --no-daemon bootJar -x test \
+ && cp build/libs/*-SNAPSHOT.jar /workspace/app.jar
 
 # 2단계: 실행 이미지.
 # temurin alpine 태그는 amd64만 있어 Apple Silicon에서 못 쓴다 → jammy(ubuntu) 베이스.
