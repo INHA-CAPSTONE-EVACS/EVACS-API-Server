@@ -32,15 +32,16 @@ class VehicleQueryServiceTest {
 	@BeforeEach
 	void setUp() {
 		EvacsProperties properties = new EvacsProperties(
-				new EvacsProperties.Redis("k", "c:%s", "a:%s", "s", 100),
-				new EvacsProperties.Vehicle(30, 9),
+				new EvacsProperties.Redis("test:", "c:%s", "a:%s", "s", 100),
+				new EvacsProperties.Vehicle(30_000, 9),
 				new EvacsProperties.Outbox(false, 1000, 10, 3));
 		service = new VehicleQueryService(vehicleRepository, new H3Support(), properties);
 	}
 
 	private VehicleState state(String id, String type, double lat, double lng) {
 		Instant now = Instant.now();
-		return new VehicleState("e-" + id, id, type, lat, lng, 10, 90, 0, 2, now, 1, now);
+		return new VehicleState(
+				id, type, lat, lng, 10, 90, "8930e0ab12fffff", 1, now, now, 1, "ACTIVE");
 	}
 
 	@Test

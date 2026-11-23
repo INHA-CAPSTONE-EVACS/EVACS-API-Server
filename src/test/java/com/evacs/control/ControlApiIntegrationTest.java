@@ -2,6 +2,7 @@ package com.evacs.control;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.evacs.control.common.geo.H3Support;
 import com.evacs.control.emergency.dto.AlertedVehiclesResponse;
 import com.evacs.control.emergency.dto.ConeResponse;
 import com.evacs.control.emergency.dto.CreateEmergencyDto;
@@ -12,7 +13,9 @@ import com.evacs.control.vehicle.dto.VehicleListResponse;
 import com.evacs.control.vehicle.dto.VehicleSummaryResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,8 +39,12 @@ import org.springframework.test.context.ActiveProfiles;
 @ActiveProfiles("test")
 class ControlApiIntegrationTest {
 
-	private static final String SNAPSHOT_KEY = "test:evacs:vehicle:location";
+	private static final String KEY_PREFIX = "test:";
+	private static final String ACTIVE_CELLS_KEY = KEY_PREFIX + "h3:cells:active";
 	private static final String STREAM_KEY = "test:evacs:stream:emergency-event";
+
+	/** 워커가 쓰는 셀 해상도(Location-Worker H3_RESOLUTION 기본값). */
+	private static final int CELL_RESOLUTION = 9;
 
 	@Autowired
 	private TestRestTemplate http;
@@ -48,6 +55,9 @@ class ControlApiIntegrationTest {
 	@Autowired
 	private JdbcTemplate jdbc;
 
+	@Autowired
+	private H3Support h3;
+
 	@BeforeEach
 	void clean() {
 		// MySQL의 TRUNCATE는 다중 테이블·CASCADE를 지원하지 않고 FK가 걸린 테이블도 거부한다.
@@ -57,19 +67,23 @@ class ControlApiIntegrationTest {
 			jdbc.execute("TRUNCATE TABLE " + table);
 		}
 		jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
-		redis.delete(List.of(SNAPSHOT_KEY, STREAM_KEY));
+		redis.delete(STREAM_KEY);
+		// 워커 키(셀 인덱스·차량 상태)를 테스트 접두사 범위에서만 지운다.
+		for (String pattern : List.of(KEY_PREFIX + "h3:*", KEY_PREFIX + "vehicle:*")) {
+			redis.keys(pattern).forEach(redis::delete);
+		}
 		redis.keys("test:evacs:emergency:*").forEach(redis::delete);
 	}
 
 	// ---------- 실시간 차량 정보 조회 ----------
 
 	@Test
-	@DisplayName("ws-server가 쓴 스냅샷을 그대로 읽어 목록·요약·밀도를 만든다")
+	@DisplayName("Location Worker가 쓴 상태 Hash·셀 인덱스를 읽어 목록·요약·밀도를 만든다")
 	void readsVehicleSnapshot() {
 		putVehicle("CAR_001", "NORMAL", 37.4500, 126.6500, Instant.now());
 		putVehicle("CAR_002", "NORMAL", 37.4501, 126.6501, Instant.now());
 		putVehicle("AMB_001", "EMERGENCY", 37.5500, 126.7500, Instant.now());
-		// 오래된 항목은 활성 차량에서 빠져야 한다(해시에는 TTL이 없다).
+		// 워커의 정리 주기가 아직 돌지 않아 셀 ZSET에 남은 차량은 활성에서 빠져야 한다.
 		putVehicle("GHOST", "NORMAL", 37.4000, 126.6000, Instant.now().minus(Duration.ofMinutes(10)));
 
 		VehicleListResponse list = http.getForObject("/control/vehicles", VehicleListResponse.class);
@@ -274,15 +288,30 @@ class ControlApiIntegrationTest {
 
 	// ---------- helpers ----------
 
-	private void putVehicle(String vehicleId, String type, double lat, double lng, Instant occurredAt) {
-		String json =
-				"""
-				{"eventId":"e-%s","vehicleId":"%s","vehicleType":"%s","latitude":%f,"longitude":%f,
-				 "speedMps":10.0,"headingDegrees":90.0,"laneIndex":0,"laneCount":2,
-				 "measuredAt":"%s","sequence":1,"occurredAt":"%s"}
-				"""
-						.formatted(vehicleId, vehicleId, type, lat, lng, occurredAt, occurredAt);
-		redis.opsForHash().put(SNAPSHOT_KEY, vehicleId, json);
+	/**
+	 * Location Worker의 apply-location.lua가 쓰는 세 키를 그대로 흉내 낸다.
+	 * (상태 Hash + 셀 ZSET score=수신 시각 ms + 활성 셀 SET)
+	 */
+	private void putVehicle(String vehicleId, String type, double lat, double lng, Instant updatedAt) {
+		String cell = h3.cellOf(lat, lng, CELL_RESOLUTION);
+		Map<String, String> state = new LinkedHashMap<>();
+		state.put("vehicleId", vehicleId);
+		state.put("vehicleType", type);
+		state.put("latitude", Double.toString(lat));
+		state.put("longitude", Double.toString(lng));
+		state.put("speedMps", "10.0");
+		state.put("headingDegrees", "90.0");
+		state.put("h3CellId", cell);
+		state.put("lastSequence", "1");
+		state.put("lastMeasuredAt", Long.toString(updatedAt.toEpochMilli()));
+		state.put("lastUpdatedAt", updatedAt.toString());
+		state.put("stateVersion", "1");
+		state.put("status", "ACTIVE");
+
+		redis.opsForHash().putAll(KEY_PREFIX + "vehicle:" + vehicleId + ":state", state);
+		redis.opsForZSet()
+				.add(KEY_PREFIX + "h3:vehicles:" + cell, vehicleId, updatedAt.toEpochMilli());
+		redis.opsForSet().add(ACTIVE_CELLS_KEY, cell);
 	}
 
 	/**

@@ -15,10 +15,14 @@ spring:
 
 evacs:
   redis:
-    location-snapshot-key: test:evacs:vehicle:location
+    # Location Worker 키를 'test:' 접두사로 격리한다(운영은 접두사 없음).
+    key-prefix: "test:"
     cone-key-pattern: "test:evacs:emergency:%s:cone"
     alert-key-pattern: "test:evacs:emergency:%s:alerted"
     emergency-stream: test:evacs:stream:emergency-event
+  vehicle:
+    # 테스트는 워커 없이 키를 직접 심으므로 판정 여유를 조금 더 둔다.
+    active-ttl-ms: 30000
   outbox:
     enabled: true
     poll-interval-ms: 200

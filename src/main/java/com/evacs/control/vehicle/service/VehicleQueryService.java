@@ -125,6 +125,6 @@ public class VehicleQueryService {
 	}
 
 	private Duration staleAfter() {
-		return Duration.ofSeconds(properties.vehicle().staleAfterSeconds());
+		return Duration.ofMillis(properties.vehicle().activeTtlMs());
 	}
 }

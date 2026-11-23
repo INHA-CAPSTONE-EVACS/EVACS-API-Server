@@ -71,22 +71,36 @@ Outbox만 건드린다. 브로커 발행은 OutboxProcessor가 비동기로 하�
 
 | 용도 | 키 | 쓰는 쪽 / 읽는 쪽 |
 |---|---|---|
-| 차량별 최신 위치 | `evacs:vehicle:location` (Hash) | ws-server가 `HSET` / 이 서버가 `HGETALL` |
+| 비어 있지 않은 H3 셀 | `h3:cells:active` (Set) | Location Worker / 이 서버 |
+| 셀별 차량 인덱스 | `h3:vehicles:{h3CellId}` (ZSet, score=수신 시각 ms) | Location Worker / 이 서버 |
+| 차량별 현재 상태 | `vehicle:{vehicleId}:state` (Hash, EXPIRE 3600s) | Location Worker / 이 서버 |
 | 긴급차량 영향 셀 | `evacs:emergency:{id}:cone` (String JSON) | Emergency Worker / 이 서버 |
 | 알림 수신 차량 | `evacs:emergency:{id}:alerted` (Set) | Emergency Worker / 이 서버 |
 | 긴급상황 이벤트 | `evacs:stream:emergency-event` (Stream) | 이 서버가 `XADD` / Emergency Worker가 소비 |
 
-위치 스냅샷 해시에는 TTL이 없어 떠난 차량의 마지막 위치가 남는다. 그래서 `occurredAt`이
-`evacs.vehicle.stale-after-seconds`(기본 30초)보다 오래된 항목은 활성 차량에서 뺀다
-(요약의 `stale` 필드로 몇 건이 그런 잔재인지 볼 수 있다).
+차량 위치의 출처는 **Location Worker가 정제한 상태**다. ws-server가 `stream:vehicle:location`에
+쌓은 원본을 워커가 소비해 중복·역행을 걸러 내고 H3 셀을 붙여 위 세 키에 반영한다
+(Location-Worker `design.md` §2, `apply-location.lua`).
 
-**스냅샷 해시 키와 위치 스트림 키는 다른 키다.** ws-server는 위치 1건을 받을 때마다
-`EVACS_LOCATION_STREAM`에 `XADD`하고 `EVACS_LOCATION_SNAPSHOT_KEY`(해시)에 `HSET`한다.
-이 서버가 읽어야 하는 건 **해시**이므로 `evacs.redis.location-snapshot-key`에 스트림 키를 넣으면
-`WRONGTYPE Operation against a key holding the wrong kind of value`로 조회가 전부 500이 된다.
-두 레포의 `EVACS_LOCATION_SNAPSHOT_KEY` 기본값은 모두 `evacs:vehicle:location`이고,
-ws-server 쪽에서 이 값을 바꿨다면 이 서버도 같은 값으로 맞춰야 한다
-(ws-server `.env`가 `EVACS_LOCATION_STREAM`만 바꿔 놓은 경우가 실제로 있었다).
+**`stream:vehicle:state`는 읽지 않는다.** 워커가 그 스트림에 내보내는 `VEHICLE_STATE_UPDATED`
+payload에는 `vehicleId`·`vehicleType`·`h3CellId`·`previousH3CellId`·`stateVersion`·`measuredAt`만
+있고 **좌표·속도·방향이 없다**(`contracts.ts`의 `VehicleStateUpdatedPayload`). 그 스트림은
+Emergency Worker용 변경 로그이고, 조회 응답을 채울 수 있는 건 상태 Hash뿐이다.
+
+세 키를 따로 읽으면 왕복이 3회(SMEMBERS → 셀별 ZRANGE → 차량별 HGETALL)로 늘고 셀 집합과
+차량 상태의 시점이 어긋난다. 그래서 전부 Lua 스크립트
+(`src/main/resources/redis/active-vehicle-states.lua`) 하나로 돌려 **왕복 1회**로 읽는다.
+셀 ZSET·상태 Hash 키는 `h3:cells:active`를 읽고 나서야 알 수 있어 `KEYS`로 선언할 수 없다 —
+워커의 스크립트와 같은 제약이고 단일 Redis에서만 유효하다(Cluster 불가).
+
+오래된 차량 정리는 **워커가** 한다(`INACTIVE_TTL_MS` 지난 차량을 셀 ZSET에서 빼고
+`status=INACTIVE`, 상태 Hash는 TTL 1시간). 읽는 쪽에는 스위퍼가 없다. 활성 판정 기준인
+`evacs.vehicle.active-ttl-ms`는 워커의 `INACTIVE_TTL_MS`(기본 5000)와 같은 값이어야 하고,
+기준보다 오래됐거나 `INACTIVE`인 항목은 요약의 `stale` 필드로 집계된다.
+
+워커는 키 이름을 코드에 고정해 둔다(`contracts.ts`). 그래서 운영에서
+`evacs.redis.key-prefix`(`EVACS_REDIS_KEY_PREFIX`)는 **비어 있어야** 하고, 이 값은 테스트가
+같은 Redis를 쓸 때 `test:`로 격리하는 용도다.
 
 이벤트 스트림에 길이 기준 트림(`XADD MAXLEN`)을 걸지 않았다. 소비자 그룹의 PEL/lag을 보지 않고
 자르기 때문에 Worker가 아직 읽지 않은 이벤트가 조용히 사라진다. 보존이 필요하면 시간 기준
@@ -165,8 +179,16 @@ docker run --rm -p 8081:8081 \
 ```
 
 컨테이너 안에서 `127.0.0.1`은 컨테이너 자신이다 — 호스트 compose의 PG·Redis를 쓰려면
-위처럼 `host.docker.internal`로 넘겨야 한다. `JAVA_OPTS`로 JVM 옵션을 덮을 수 있고
-HEALTHCHECK는 `/actuator/health`를 본다.
+위처럼 `host.docker.internal`로 넘겨야 한다. `JAVA_OPTS`로 JVM 옵션을 덮을 수 있다.
+
+HEALTHCHECK는 `/actuator/health/liveness`(그룹 `ping`)만 본다. `/actuator/health`에는
+DB·Redis 상태가 섞여 있어 Redis가 느려지면 프로세스가 멀쩡한데도 컨테이너가 교체된다.
+의존 서비스 상태는 `/actuator/health/readiness`(그룹 `db,redis`, 컴포넌트 표시)로 따로 본다.
+
+```sh
+curl http://127.0.0.1:8081/actuator/health/liveness    # 재기동 판단
+curl http://127.0.0.1:8081/actuator/health/readiness   # DB·Redis 상태
+```
 
 ### compose로 앱까지 (호스트 네트워크)
 
@@ -191,11 +213,11 @@ macOS·Windows Docker Desktop은 host 네트워킹이 옵션이다 — Settings 
 | `DB_SSL_MODE` | `DISABLED` (운영에서는 `VERIFY_IDENTITY`) |
 | `DB_USERNAME` / `DB_PASSWORD` | `evacs` / `evacs` |
 | `REDIS_HOST` / `REDIS_PORT` | `127.0.0.1` / `6402` |
-| `EVACS_LOCATION_SNAPSHOT_KEY` | `evacs:vehicle:location` |
+| `EVACS_REDIS_KEY_PREFIX` | (빈 값) — Location Worker 키 접두사, 운영에서는 비워 둔다 |
 | `EVACS_CONE_KEY_PATTERN` | `evacs:emergency:%s:cone` |
 | `EVACS_ALERT_KEY_PATTERN` | `evacs:emergency:%s:alerted` |
 | `EVACS_EMERGENCY_STREAM` | `evacs:stream:emergency-event` |
-| `EVACS_VEHICLE_STALE_AFTER_SECONDS` | `30` |
+| `EVACS_VEHICLE_ACTIVE_TTL_MS` | `5000` (Location Worker의 `INACTIVE_TTL_MS`와 같은 값) |
 | `EVACS_DENSITY_RESOLUTION` | `9` |
 | `EVACS_OUTBOX_ENABLED` / `_POLL_INTERVAL_MS` / `_BATCH_SIZE` / `_MAX_ATTEMPTS` | `true` / `1000` / `100` / `5` |
 
@@ -209,8 +231,9 @@ docker compose -f docker/compose.yml up -d --wait
 ./gradlew test
 ```
 
-- 단위: 밀도 집계·좌표 검증(`VehicleQueryServiceTest`), ws-server JSON 파싱 계약(`VehicleStateParsingTest`)
-- 통합(`ControlApiIntegrationTest`, 실제 PG·Redis): 스냅샷 조회/stale 제외/유형·영역 필터,
+- 단위: 밀도 집계·좌표 검증(`VehicleQueryServiceTest`), 워커 상태 Hash 파싱·키 조립 계약(`VehicleStateParsingTest`)
+- 통합(`ControlApiIntegrationTest`, 실제 MySQL·Redis): 워커 키(상태 Hash + 셀 ZSET + 활성 셀 SET)를
+  직접 심어 Lua 조회/stale 제외/유형·영역 필터,
   생성 201 + 경로 저장 + **브로커 스트림 실제 발행**, 중복 생성 409, 종료 전이와 재종료 409,
   cone 미계산 시 `available=false`, Worker가 쓴 cone/알림 수신 읽기, 잘못된 ID 400/404
 

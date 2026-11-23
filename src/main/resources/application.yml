@@ -34,14 +34,29 @@ management:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      # 컨테이너 재기동 판단(liveness)과 의존 서비스 상태(readiness)를 분리한다.
+      # /actuator/health는 Redis·DB를 포함하므로 Redis가 느리면 DOWN이 되고,
+      # 그걸 Docker HEALTHCHECK에 쓰면 프로세스가 멀쩡한데도 컨테이너가 교체된다.
+      # HEALTHCHECK는 liveness(ping)만 본다. Redis 상태는 readiness로 따로 확인한다.
+      group:
+        liveness:
+          include: ping
+        readiness:
+          include: db,redis
+          show-components: always
 
 evacs:
   redis:
-    # evacs-ws-server가 쓰는 키와 반드시 같은 값이어야 한다.
-    # ws-server는 HSET(필드=vehicleId)으로 이 '해시'를 갱신한다(RedisEventPublisher.hsetIfNewer).
-    # ws-server의 '위치 스트림'(EVACS_LOCATION_STREAM, 예: stream:vehicle:location)을
-    # 여기에 넣으면 HGETALL이 WRONGTYPE으로 깨진다 — 스트림 키가 아니라 스냅샷 해시 키다.
-    location-snapshot-key: ${EVACS_LOCATION_SNAPSHOT_KEY:evacs:vehicle:location}
+    # 실시간 차량 상태의 출처는 Location-Worker가 소유한 세 키다(design.md §2).
+    #   h3:cells:active        SET   비어 있지 않은 셀
+    #   h3:vehicles:{cellId}   ZSET  member=vehicleId, score=수신 시각 ms
+    #   vehicle:{id}:state     Hash  좌표·속도·방향·h3CellId·status (EXPIRE 3600s)
+    # 워커가 키 이름을 코드에 고정해 두므로 운영에서는 접두사를 비워 둬야 한다.
+    # 테스트가 같은 Redis를 쓸 때만 격리용으로 'test:' 같은 값을 넣는다.
+    # stream:vehicle:state는 읽지 않는다 — 그 이벤트에는 좌표가 없고 셀 변경 사실만 있다.
+    key-prefix: ${EVACS_REDIS_KEY_PREFIX:}
     # Emergency Worker가 긴급차량의 영향 셀(cone)과 알림 수신 차량을 기록하는 키 패턴.
     cone-key-pattern: ${EVACS_CONE_KEY_PATTERN:evacs:emergency:%s:cone}
     alert-key-pattern: ${EVACS_ALERT_KEY_PATTERN:evacs:emergency:%s:alerted}
@@ -49,16 +64,17 @@ evacs:
     emergency-stream: ${EVACS_EMERGENCY_STREAM:evacs:stream:emergency-event}
     emergency-stream-maxlen: ${EVACS_EMERGENCY_STREAM_MAXLEN:10000}
   vehicle:
-    # 스냅샷 해시는 TTL이 없어 떠난 차량의 마지막 위치가 남는다.
-    # occurredAt이 이 값보다 오래된 항목은 "활성 차량"에서 제외한다.
-    stale-after-seconds: ${EVACS_VEHICLE_STALE_AFTER_SECONDS:30}
+    # Location Worker의 INACTIVE_TTL_MS와 같은 값이어야 한다(워커 기본값 5000).
+    # 워커가 이 기준으로 셀 ZSET에서 빼고 status=INACTIVE를 찍는다.
+    # 오래된 항목 정리는 워커가 하므로 관제 API에는 스위퍼가 없다.
+    active-ttl-ms: ${EVACS_VEHICLE_ACTIVE_TTL_MS:5000}
     default-density-resolution: ${EVACS_DENSITY_RESOLUTION:9}
   outbox:
     enabled: ${EVACS_OUTBOX_ENABLED:true}
     poll-interval-ms: ${EVACS_OUTBOX_POLL_INTERVAL_MS:1000}
     batch-size: ${EVACS_OUTBOX_BATCH_SIZE:100}
     max-attempts: ${EVACS_OUTBOX_MAX_ATTEMPTS:5}
-
+    
 logging:
   level:
     com.evacs.control: DEBUG

@@ -11,10 +11,12 @@ public record VehicleResponse(
 		double longitude,
 		double speedMps,
 		double headingDegrees,
-		Integer laneIndex,
-		Integer laneCount,
+		String h3CellId,
+		long lastSequence,
 		Instant measuredAt,
-		Instant occurredAt,
+		Instant updatedAt,
+		long stateVersion,
+		String status,
 		boolean stale) {
 
 	public static VehicleResponse from(VehicleState state, boolean stale) {
@@ -25,10 +27,12 @@ public record VehicleResponse(
 				state.longitude(),
 				state.speedMps(),
 				state.headingDegrees(),
-				state.laneIndex(),
-				state.laneCount(),
+				state.h3CellId(),
+				state.lastSequence(),
 				state.measuredAt(),
-				state.occurredAt(),
+				state.updatedAt(),
+				state.stateVersion(),
+				state.status(),
 				stale);
 	}
 }

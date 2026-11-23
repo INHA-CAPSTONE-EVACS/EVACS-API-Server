@@ -34,8 +34,11 @@ ENV TZ=UTC \
 
 EXPOSE 8081
 
-# actuator health는 application.yml에서 이미 노출돼 있다.
+# HEALTHCHECK는 liveness 그룹만 본다(application.yml의 management.endpoint.health.group).
+# /actuator/health는 DB·Redis 상태를 포함하므로, Redis가 느려지면 프로세스가 멀쩡한데도
+# unhealthy가 되어 컨테이너가 교체된다. 재기동 판단은 "JVM이 요청을 받는가"로만 한다.
+# 의존 서비스 상태는 /actuator/health/readiness로 따로 본다.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=40s --retries=10 \
-  CMD curl -fsS "http://127.0.0.1:${PORT}/actuator/health" | grep -q '"status":"UP"' || exit 1
+  CMD curl -fsS "http://127.0.0.1:${PORT}/actuator/health/liveness" | grep -q '"status":"UP"' || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
