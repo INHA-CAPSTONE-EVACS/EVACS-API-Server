@@ -15,7 +15,8 @@ public record EmergencyResponse(
 		Double destinationLng,
 		String description,
 		Instant startedAt,
-		Instant endedAt) {
+		Instant endedAt,
+		boolean isSumo) {
 
 	public static EmergencyResponse from(Emergency e) {
 		return new EmergencyResponse(
@@ -29,6 +30,7 @@ public record EmergencyResponse(
 				e.getDestinationLng(),
 				e.getDescription(),
 				e.getStartedAt(),
-				e.getEndedAt());
+				e.getEndedAt(),
+				e.isSumo());
 	}
 }

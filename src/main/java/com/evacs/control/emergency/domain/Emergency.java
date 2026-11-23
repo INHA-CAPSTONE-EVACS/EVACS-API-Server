@@ -56,6 +56,10 @@ public class Emergency {
 	@Column(name = "description")
 	private String description;
 
+	// SUMO 모드로 만들어진 긴급상황인지. 실차와 시뮬레이션 차량을 사후에 구분하기 위해 남긴다.
+	@Column(name = "is_sumo", nullable = false)
+	private boolean sumo;
+
 	@Column(name = "started_at", nullable = false)
 	private Instant startedAt;
 
@@ -81,6 +85,7 @@ public class Emergency {
 			Double destinationLat,
 			Double destinationLng,
 			String description,
+			boolean sumo,
 			Instant now) {
 		this.id = id;
 		this.vehicleId = vehicleId;
@@ -91,6 +96,7 @@ public class Emergency {
 		this.destinationLat = destinationLat;
 		this.destinationLng = destinationLng;
 		this.description = description;
+		this.sumo = sumo;
 		this.startedAt = now;
 		this.createdAt = now;
 		this.updatedAt = now;
@@ -103,7 +109,8 @@ public class Emergency {
 			Double originLng,
 			Double destinationLat,
 			Double destinationLng,
-			String description) {
+			String description,
+			boolean sumo) {
 		return new Emergency(
 				UUID.randomUUID(),
 				vehicleId,
@@ -113,6 +120,7 @@ public class Emergency {
 				destinationLat,
 				destinationLng,
 				description,
+				sumo,
 				Instant.now());
 	}
 
@@ -166,6 +174,11 @@ public class Emergency {
 
 	public String getDescription() {
 		return description;
+	}
+
+	/** SUMO 모드로 생성된 긴급상황인지. */
+	public boolean isSumo() {
+		return sumo;
 	}
 
 	public Instant getStartedAt() {

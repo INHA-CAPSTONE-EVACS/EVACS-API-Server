@@ -99,7 +99,11 @@ const ENDPOINTS = [
       route:[
         { latitude:37.45, longitude:126.65, sequence:0, etaSeconds:0 },
         { latitude:37.50, longitude:126.70, sequence:1, etaSeconds:120 }
-      ]
+      ],
+      // isSumo:true면 커밋 후 SUMO 시뮬레이터(app.py)에 이 vehicleId로 긴급차량을 1대 투입한다.
+      // sumoDepotId를 비우면 evacs.sumo.default-depot-id를 쓴다(GET :8000/api/depots의 id).
+      isSumo:false,
+      sumoDepotId:''
     } },
   { m:'GET', path:'/control/emergencies/{id}', desc:'긴급상황 상세',
     path_params:[ { name:'id', ph:'UUID' } ] },

@@ -8,6 +8,7 @@ import com.evacs.control.emergency.domain.EmergencyRoute;
 import com.evacs.control.emergency.dto.CreateEmergencyDto;
 import com.evacs.control.emergency.repository.EmergencyRepository;
 import com.evacs.control.emergency.repository.EmergencyRouteRepository;
+import com.evacs.control.emergency.sumo.SumoSpawnRequested;
 import com.evacs.control.outbox.domain.EmergencyEventType;
 import com.evacs.control.outbox.domain.OutboxEvent;
 import com.evacs.control.outbox.repository.OutboxRepository;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class EmergencyCommandService {
 	private final ObjectMapper objectMapper;
 	private final H3Support h3;
 	private final EvacsProperties properties;
+	private final ApplicationEventPublisher events;
 
 	public EmergencyCommandService(
 			EmergencyRepository emergencyRepository,
@@ -47,13 +50,15 @@ public class EmergencyCommandService {
 			OutboxRepository outboxRepository,
 			ObjectMapper evacsObjectMapper,
 			H3Support h3,
-			EvacsProperties properties) {
+			EvacsProperties properties,
+			ApplicationEventPublisher events) {
 		this.emergencyRepository = emergencyRepository;
 		this.routeRepository = routeRepository;
 		this.outboxRepository = outboxRepository;
 		this.objectMapper = evacsObjectMapper;
 		this.h3 = h3;
 		this.properties = properties;
+		this.events = events;
 	}
 
 	/**
@@ -64,6 +69,10 @@ public class EmergencyCommandService {
 	 */
 	@Transactional
 	public Emergency createEmergency(CreateEmergencyDto dto) {
+		if (dto.sumoMode()) {
+			validateSumoMode(dto);
+		}
+
 		Emergency active = emergencyRepository.findActiveByVehicleId(dto.vehicleId());
 		if (active != null) {
 			throw ApiException.conflict(
@@ -78,7 +87,8 @@ public class EmergencyCommandService {
 				dto.originLng(),
 				dto.destinationLat(),
 				dto.destinationLng(),
-				dto.description()));
+				dto.description(),
+				dto.sumoMode()));
 
 		List<EmergencyRoute> routes = toRoutes(emergency.getId(), dto.routeOrEmpty());
 		if (!routes.isEmpty()) {
@@ -90,9 +100,39 @@ public class EmergencyCommandService {
 				EmergencyEventType.EMERGENCY_CREATED,
 				createdPayload(emergency, routes)));
 
-		log.info("긴급상황 생성: id={} vehicleId={} routePoints={}",
-				emergency.getId(), emergency.getVehicleId(), routes.size());
+		if (dto.sumoMode()) {
+			// 시뮬레이터 호출은 커밋 후다(롤백해도 SUMO의 차량은 되돌릴 수 없다).
+			events.publishEvent(new SumoSpawnRequested(
+					emergency.getId(),
+					emergency.getVehicleId(),
+					resolveDepotId(dto),
+					dto.destinationLat(),
+					dto.destinationLng()));
+		}
+
+		log.info("긴급상황 생성: id={} vehicleId={} routePoints={} sumo={}",
+				emergency.getId(), emergency.getVehicleId(), routes.size(), emergency.isSumo());
 		return emergency;
+	}
+
+	/**
+	 * SUMO 모드 요청의 사전 검사.
+	 *
+	 * <p>목적지가 없으면 시뮬레이터가 경로를 만들 수 없으므로 생성 자체를 막는다 — 커밋 후에
+	 * 알게 되면 투입 없는 긴급상황만 남는다.
+	 */
+	private void validateSumoMode(CreateEmergencyDto dto) {
+		if (!properties.sumo().enabled()) {
+			throw ApiException.badRequest("SUMO 모드가 비활성화되어 있습니다(evacs.sumo.enabled=false).");
+		}
+		if (dto.destinationLat() == null || dto.destinationLng() == null) {
+			throw ApiException.badRequest("SUMO 모드에서는 destinationLat, destinationLng가 필요합니다.");
+		}
+	}
+
+	private String resolveDepotId(CreateEmergencyDto dto) {
+		String depotId = dto.sumoDepotId();
+		return depotId == null || depotId.isBlank() ? properties.sumo().defaultDepotId() : depotId;
 	}
 
 	/** 긴급상황 종료 상태 전이 및 종료 이벤트 저장. */
@@ -138,6 +178,7 @@ public class EmergencyCommandService {
 		node.put("vehicleId", e.getVehicleId());
 		node.put("emergencyType", e.getEmergencyType());
 		node.put("status", e.getStatus().name());
+		node.put("isSumo", e.isSumo());
 		node.put("startedAt", e.getStartedAt().toString());
 		putCoordinate(node, "origin", e.getOriginLat(), e.getOriginLng());
 		putCoordinate(node, "destination", e.getDestinationLat(), e.getDestinationLng());

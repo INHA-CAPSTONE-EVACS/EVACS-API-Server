@@ -129,7 +129,9 @@ class ControlApiIntegrationTest {
 				"테스트 출동",
 				List.of(
 						new CreateEmergencyDto.RoutePoint(37.45, 126.65, 0, 0),
-						new CreateEmergencyDto.RoutePoint(37.50, 126.70, 1, 120)));
+						new CreateEmergencyDto.RoutePoint(37.50, 126.70, 1, 120)),
+				null,
+				null);
 
 		ResponseEntity<EmergencyResponse> created =
 				http.postForEntity("/control/emergencies", dto, EmergencyResponse.class);
@@ -156,7 +158,7 @@ class ControlApiIntegrationTest {
 	@DisplayName("같은 차량에 진행 중 긴급상황이 있으면 409")
 	void duplicateActiveEmergencyIsConflict() {
 		CreateEmergencyDto dto = new CreateEmergencyDto(
-				"AMB_002", "RESCUE", 37.45, 126.65, null, null, null, null);
+				"AMB_002", "RESCUE", 37.45, 126.65, null, null, null, null, null, null);
 		assertThat(http.postForEntity("/control/emergencies", dto, EmergencyResponse.class).getStatusCode())
 				.isEqualTo(HttpStatus.CREATED);
 
@@ -168,7 +170,7 @@ class ControlApiIntegrationTest {
 	@DisplayName("종료하면 ENDED가 되고 두 번째 종료는 409")
 	void endEmergencyTransitionsOnce() {
 		CreateEmergencyDto dto = new CreateEmergencyDto(
-				"AMB_003", "FIRE", 37.45, 126.65, null, null, null, null);
+				"AMB_003", "FIRE", 37.45, 126.65, null, null, null, null, null, null);
 		String id = http.postForEntity("/control/emergencies", dto, EmergencyResponse.class)
 				.getBody()
 				.id();
@@ -193,11 +195,11 @@ class ControlApiIntegrationTest {
 	void filtersEmergencyList() {
 		http.postForEntity(
 				"/control/emergencies",
-				new CreateEmergencyDto("AMB_004", "FIRE", 37.4, 126.6, null, null, null, null),
+				new CreateEmergencyDto("AMB_004", "FIRE", 37.4, 126.6, null, null, null, null, null, null),
 				EmergencyResponse.class);
 		String endedId = http.postForEntity(
 						"/control/emergencies",
-						new CreateEmergencyDto("AMB_005", "FIRE", 37.4, 126.6, null, null, null, null),
+						new CreateEmergencyDto("AMB_005", "FIRE", 37.4, 126.6, null, null, null, null, null, null),
 						EmergencyResponse.class)
 				.getBody()
 				.id();
@@ -220,7 +222,7 @@ class ControlApiIntegrationTest {
 	void missingConeIsNotAnError() {
 		String id = http.postForEntity(
 						"/control/emergencies",
-						new CreateEmergencyDto("AMB_006", "FIRE", 37.4, 126.6, null, null, null, null),
+						new CreateEmergencyDto("AMB_006", "FIRE", 37.4, 126.6, null, null, null, null, null, null),
 						EmergencyResponse.class)
 				.getBody()
 				.id();
@@ -235,7 +237,7 @@ class ControlApiIntegrationTest {
 	void readsWorkerWrittenState() {
 		String id = http.postForEntity(
 						"/control/emergencies",
-						new CreateEmergencyDto("AMB_007", "FIRE", 37.4, 126.6, null, null, null, null),
+						new CreateEmergencyDto("AMB_007", "FIRE", 37.4, 126.6, null, null, null, null, null, null),
 						EmergencyResponse.class)
 				.getBody()
 				.id();
@@ -281,7 +283,7 @@ class ControlApiIntegrationTest {
 	void validationRejectsEmptyVehicleId() {
 		ResponseEntity<String> response = http.postForEntity(
 				"/control/emergencies",
-				new CreateEmergencyDto("", "FIRE", null, null, null, null, null, null),
+				new CreateEmergencyDto("", "FIRE", null, null, null, null, null, null, null, null),
 				String.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 	}

@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 값이 어긋나면 조회가 조용히 빈 결과를 돌려준다. 반드시 같은 값을 쓸 것.
  */
 @ConfigurationProperties(prefix = "evacs")
-public record EvacsProperties(Redis redis, Vehicle vehicle, Outbox outbox) {
+public record EvacsProperties(Redis redis, Vehicle vehicle, Outbox outbox, Sumo sumo) {
 
 	/**
 	 * @param keyPrefix        Location Worker 키에 붙는 접두사. 워커는 키 이름을 코드에 고정해 두므로
@@ -78,5 +78,17 @@ public record EvacsProperties(Redis redis, Vehicle vehicle, Outbox outbox) {
 	 * @param maxAttempts    이 횟수만큼 실패하면 FAILED로 두고 더 재시도하지 않는다.
 	 */
 	public record Outbox(boolean enabled, long pollIntervalMs, int batchSize, int maxAttempts) {
+	}
+
+	/**
+	 * SUMO 모드 설정. {@code isSumo=true}로 들어온 긴급상황을 SUMO 시뮬레이터(app.py)에
+	 * 투입할 때 쓴다.
+	 *
+	 * @param enabled        false면 SUMO 모드 요청을 거부한다(400). 실차 운영 배포의 기본값.
+	 * @param baseUrl        SUMO 시뮬레이터 app.py 주소. {@code POST {baseUrl}/api/emergency}를 호출한다.
+	 * @param defaultDepotId 요청에 sumoDepotId가 없을 때 쓸 차고지 ID({@code GET /api/depots}의 값).
+	 * @param timeoutMs      app.py는 투입 결과를 최대 4초 기다렸다가 202를 주므로 그보다 넉넉해야 한다.
+	 */
+	public record Sumo(boolean enabled, String baseUrl, String defaultDepotId, long timeoutMs) {
 	}
 }

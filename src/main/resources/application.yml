@@ -74,6 +74,14 @@ evacs:
     poll-interval-ms: ${EVACS_OUTBOX_POLL_INTERVAL_MS:1000}
     batch-size: ${EVACS_OUTBOX_BATCH_SIZE:100}
     max-attempts: ${EVACS_OUTBOX_MAX_ATTEMPTS:5}
+  sumo:
+    # isSumo=true로 들어온 긴급상황을 SUMO 시뮬레이터(EVACS-SUMO-Continuous/app.py)에 투입한다.
+    # 커밋 후에 POST {base-url}/api/emergency {depotId,destinationLat,destinationLng,vehicleId}.
+    # 실차 운영에서는 enabled=false로 두어 시뮬레이터 호출 경로를 막는다.
+    enabled: ${EVACS_SUMO_ENABLED:true}
+    base-url: ${EVACS_SUMO_BASE_URL:http://127.0.0.1:8000}
+    default-depot-id: ${EVACS_SUMO_DEPOT_ID:yonghyeon}
+    timeout-ms: ${EVACS_SUMO_TIMEOUT_MS:8000}
     
 logging:
   level:

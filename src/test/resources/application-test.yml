@@ -26,6 +26,14 @@ evacs:
   outbox:
     enabled: true
     poll-interval-ms: 200
+  sumo:
+    # 통합 테스트는 SUMO 모드를 쓰지 않는다. 혹시 호출돼도 밖으로 나가지 않도록 아무도 듣지 않는
+    # 포트를 가리키고 타임아웃을 짧게 둔다. 모드 검증은 EmergencySumoModeTest가 가짜 서버를 띄우고
+    # @DynamicPropertySource로 base-url을 덮어써서 한다.
+    enabled: true
+    base-url: http://127.0.0.1:18099
+    default-depot-id: yonghyeon
+    timeout-ms: 1000
 
 logging:
   level:
