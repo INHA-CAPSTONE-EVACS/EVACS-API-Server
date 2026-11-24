@@ -106,6 +106,15 @@ Emergency Worker용 변경 로그이고, 조회 응답을 채울 수 있는 건 
 자르기 때문에 Worker가 아직 읽지 않은 이벤트가 조용히 사라진다. 보존이 필요하면 시간 기준
 `XTRIM MINID`로 따로 돌려야 한다.
 
+`EMERGENCY_CREATED`의 `schemaVersion`과 `producer`는 `payload` JSON 안이 아니라
+`eventId`, `eventType`, `payload`와 같은 Redis Stream 최상위 필드다.
+값은 각각 문자열 `"1"`, `"control-api"`이며, Redis가 자동 생성하는 값이 아니라 발행 코드에서 지정한다.
+
+| 필드 | 값 | 의미 |
+|---|---|---|
+| `schemaVersion` | `1` | **payload 계약 버전**(DB 스키마 버전이 아니다). 필드를 지우거나 뜻을 바꿀 때만 올린다 — 필드 추가는 소비자를 깨지 않으므로 그대로 둔다 |
+| `producer` | `control-api` | 이벤트를 만든 서비스. 같은 스트림에 다른 생산자가 끼어들었을 때 출처를 구분한다 |
+
 ## 스키마 (MySQL)
 
 영속 스키마는 `src/main/resources/db/migration/` 아래 Flyway 마이그레이션이다.

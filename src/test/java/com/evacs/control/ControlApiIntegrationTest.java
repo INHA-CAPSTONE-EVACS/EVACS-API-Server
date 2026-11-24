@@ -11,6 +11,8 @@ import com.evacs.control.emergency.dto.EmergencyResponse;
 import com.evacs.control.emergency.dto.EmergencyRouteResponse;
 import com.evacs.control.vehicle.dto.VehicleListResponse;
 import com.evacs.control.vehicle.dto.VehicleSummaryResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -57,6 +59,8 @@ class ControlApiIntegrationTest {
 
 	@Autowired
 	private H3Support h3;
+
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	@BeforeEach
 	void clean() {
@@ -149,6 +153,14 @@ class ControlApiIntegrationTest {
 		MapRecord<String, Object, Object> record = awaitStreamRecord();
 		assertThat(record.getValue()).containsEntry("eventType", "EMERGENCY_CREATED");
 		assertThat(record.getValue()).containsEntry("aggregateId", id);
+
+		// 메타는 payload 안이 아니라 Redis Stream의 최상위 필드다.
+		assertThat(record.getValue()).containsEntry("schemaVersion", "1");
+		assertThat(record.getValue()).containsEntry("producer", "control-api");
+		JsonNode payload = objectMapper.readTree((String) record.getValue().get("payload"));
+		assertThat(payload.has("schemaVersion")).isFalse();
+		assertThat(payload.has("producer")).isFalse();
+		assertThat(payload.path("emergencyId").asText()).isEqualTo(id);
 
 		Integer published = awaitPublishedCount(1);
 		assertThat(published).isEqualTo(1);

@@ -2,6 +2,7 @@ package com.evacs.control.outbox.publisher;
 
 import com.evacs.control.common.config.EvacsProperties;
 import com.evacs.control.outbox.domain.OutboxEvent;
+import com.evacs.control.outbox.domain.EmergencyEventType;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -43,6 +44,10 @@ public class BrokerEventPublisher implements EventPublisher {
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("eventId", event.getId().toString());
 		fields.put("eventType", event.getEventType());
+		if (EmergencyEventType.EMERGENCY_CREATED.name().equals(event.getEventType())) {
+			fields.put("schemaVersion", "1");
+			fields.put("producer", "control-api");
+		}
 		fields.put("aggregateType", event.getAggregateType());
 		fields.put("aggregateId", event.getAggregateId());
 		fields.put("occurredAt", event.getCreatedAt().toString());
