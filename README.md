@@ -108,8 +108,18 @@ Emergency Worker용 변경 로그이고, 조회 응답을 채울 수 있는 건 
 
 ## 스키마 (MySQL)
 
-영속 스키마는 `src/main/resources/db/migration/V1__init.sql` 하나다. `ddl-auto: validate`이므로
+영속 스키마는 `src/main/resources/db/migration/` 아래 Flyway 마이그레이션이다.
+`V1__init.sql`(긴급상황·경로·이벤트 로그·Outbox), `V2__emergency_is_sumo.sql`,
+`V3__worker_tables.sql`(Emergency/Alert Worker 테이블). `ddl-auto: validate`이므로
 컬럼 타입은 Hibernate가 엔티티로부터 기대하는 타입과 **정확히** 같아야 한다.
+
+V3는 워커 레포에서 손으로 돌리던 `migrations/001_*.sql`의 테이블 정의를 옮긴 것이다
+(`dispatch_route`, `emergency_route_outbox`, `alert_delivery_log`). 같은 `evacs` 스키마를 쓰는데
+이력 테이블이 없어 적용 상태를 알 수 없었기 때문이다. 이제 워커 쪽 스크립트는 적용하지 않는다.
+관제 API는 이 세 테이블을 JPA로 매핑하지 않으므로 `validate` 대상이 아니고, 시각 컬럼은
+워커 구현에 맞춰 `DATETIME(3)`이다. 트리거는 RDS의 `ERROR 1419`를 피하도록
+`db/optional/dispatch_route_append_only.sql`로 분리해 선택 적용한다. 자동 적용하지 않으면
+DB 수준의 수정·삭제 금지는 보장되지 않는다. 설계서와의 차이는 `schema-diff.md`에 적어 뒀다.
 
 | 자바 | 컬럼 | 비고 |
 |---|---|---|
