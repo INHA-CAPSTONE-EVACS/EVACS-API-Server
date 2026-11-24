@@ -56,7 +56,7 @@ Outbox만 건드린다. 브로커 발행은 OutboxProcessor가 비동기로 하�
 | GET | `/control/vehicles/density` | H3 셀별 밀도. `resolution`(기본 9), 영역·유형 필터 |
 | GET | `/control/vehicles/{vehicleId}` | 차량 단건 |
 | GET | `/control/emergencies` | 긴급상황 목록. `status`, `vehicleId`, `from`, `to`, `limit` |
-| POST | `/control/emergencies` | 생성 → 201 (진행 중 건 있으면 409). `isSumo:true`면 SUMO 모드 |
+| POST | `/control/emergencies` | 생성 → 201 (진행 중 건 있으면 409). `isSumo:true`면 SUMO 모드. `originLat/originLng`를 주면 그 좌표에서, 없으면 차고지에서 출발 |
 | GET | `/control/emergencies/{id}` | 상세 |
 | POST | `/control/emergencies/{id}/end` | 종료 (이미 종료면 409) |
 | GET | `/control/emergencies/{id}/route` | 경로 지점 |
@@ -222,7 +222,7 @@ macOS·Windows Docker Desktop은 host 네트워킹이 옵션이다 — Settings 
 | `EVACS_OUTBOX_ENABLED` / `_POLL_INTERVAL_MS` / `_BATCH_SIZE` / `_MAX_ATTEMPTS` | `true` / `1000` / `100` / `5` |
 | `EVACS_SUMO_ENABLED` | `true` — false면 `isSumo=true` 요청을 400으로 거부한다(실차 운영) |
 | `EVACS_SUMO_BASE_URL` | `http://127.0.0.1:8000` — SUMO 시뮬레이터 app.py |
-| `EVACS_SUMO_DEPOT_ID` | `yonghyeon` — `sumoDepotId` 생략 시 쓸 차고지(`GET :8000/api/depots`) |
+| `EVACS_SUMO_DEPOT_ID` | `yonghyeon` — `sumoDepotId`·출발 좌표 모두 없을 때 쓸 차고지(`GET :8000/api/depots`) |
 | `EVACS_SUMO_TIMEOUT_MS` | `8000` (app.py는 투입 결과를 최대 4초 기다린다) |
 
 읽기와 기본값은 `application.yml`과 `EvacsProperties` 두 곳에만 있다. 애플리케이션 코드는

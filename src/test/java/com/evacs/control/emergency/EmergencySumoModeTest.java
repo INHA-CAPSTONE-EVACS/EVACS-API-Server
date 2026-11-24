@@ -117,6 +117,29 @@ class EmergencySumoModeTest {
 		assertThat(json).containsEntry("depotId", "nambu");
 		assertThat(json).containsEntry("destinationLat", 37.4518);
 		assertThat(json).containsEntry("destinationLng", 126.6538);
+		// 출발 좌표를 줬으면 그대로 넘겨 시뮬레이터가 차고지 대신 그 좌표에서 출발시킨다.
+		assertThat(json).containsEntry("originLat", 37.4540);
+		assertThat(json).containsEntry("originLng", 126.6489);
+	}
+
+	@Test
+	@DisplayName("출발 좌표가 없으면 차고지 출발이라 originLat/Lng를 보내지 않는다")
+	void sumoModeWithoutOriginSendsDepotOnly() throws Exception {
+		CreateEmergencyDto dto = new CreateEmergencyDto(
+				"EVACS_EMG_CALL_902", "FIRE", null, null, 37.4518, 126.6538,
+				null, null, true, null);
+
+		ResponseEntity<EmergencyResponse> created =
+				http.postForEntity("/control/emergencies", dto, EmergencyResponse.class);
+
+		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		String body = RECEIVED.poll(5, TimeUnit.SECONDS);
+		assertThat(body).as("시뮬레이터 투입 요청이 나가지 않았다").isNotNull();
+		Map<String, Object> json =
+				objectMapper.readValue(body, new TypeReference<Map<String, Object>>() {});
+		assertThat(json).doesNotContainKeys("originLat", "originLng");
+		// sumoDepotId를 생략하면 설정 기본 차고지로 간다.
+		assertThat(json).containsEntry("depotId", "yonghyeon");
 	}
 
 	@Test

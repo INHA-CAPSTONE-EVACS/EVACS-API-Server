@@ -106,6 +106,8 @@ public class EmergencyCommandService {
 					emergency.getId(),
 					emergency.getVehicleId(),
 					resolveDepotId(dto),
+					dto.originLat(),
+					dto.originLng(),
 					dto.destinationLat(),
 					dto.destinationLng()));
 		}

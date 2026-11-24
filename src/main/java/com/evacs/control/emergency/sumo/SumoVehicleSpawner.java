@@ -2,6 +2,7 @@ package com.evacs.control.emergency.sumo;
 
 import com.evacs.control.common.config.EvacsProperties;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,13 +55,19 @@ public class SumoVehicleSpawner {
 
 	/** 실제 호출. 예외를 그대로 던지므로 테스트에서 실패를 단정할 수 있다. */
 	public Map<?, ?> spawn(SumoSpawnRequested event) {
+		// 출발 좌표를 명시했으면 시뮬레이터가 그 좌표를 도로에 붙여 출발시킨다(차고지는 무시).
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("depotId", event.depotId());
+		body.put("destinationLat", event.destinationLat());
+		body.put("destinationLng", event.destinationLng());
+		body.put("vehicleId", event.vehicleId());
+		if (event.hasOrigin()) {
+			body.put("originLat", event.originLat());
+			body.put("originLng", event.originLng());
+		}
 		return client.post()
 				.uri("/api/emergency")
-				.body(Map.of(
-						"depotId", event.depotId(),
-						"destinationLat", event.destinationLat(),
-						"destinationLng", event.destinationLng(),
-						"vehicleId", event.vehicleId()))
+				.body(body)
 				.retrieve()
 				.body(Map.class);
 	}
