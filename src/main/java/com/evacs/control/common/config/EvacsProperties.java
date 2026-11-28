@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 값이 어긋나면 조회가 조용히 빈 결과를 돌려준다. 반드시 같은 값을 쓸 것.
  */
 @ConfigurationProperties(prefix = "evacs")
-public record EvacsProperties(Redis redis, Vehicle vehicle, Outbox outbox, Sumo sumo) {
+public record EvacsProperties(Redis redis, Vehicle vehicle, Alert alert, Outbox outbox, Sumo sumo) {
 
 	/**
 	 * @param keyPrefix        Location Worker 키에 붙는 접두사. 워커는 키 이름을 코드에 고정해 두므로
@@ -69,6 +69,27 @@ public record EvacsProperties(Redis redis, Vehicle vehicle, Outbox outbox, Sumo 
 	 * @param defaultDensityResolution 밀도 집계의 기본 H3 해상도.
 	 */
 	public record Vehicle(long activeTtlMs, int defaultDensityResolution) {
+	}
+
+	/**
+	 * 차량 알림 스트림 설정. 쓰는 쪽은 Alert Worker, 같은 스트림을 ws-server도 소비한다
+	 * (관제 API는 소비자 그룹을 쓰지 않으므로 서로 가로채지 않는다).
+	 *
+	 * @param enabled        false면 스트림을 따라 읽지 않는다(조회는 빈 결과).
+	 * @param stream         알림 이벤트 스트림 키. ws-server의 {@code EVACS_ALERT_STREAM}과 같은 값이어야 한다.
+	 * @param pollIntervalMs 스트림 조회 주기. 대시보드 폴링 주기보다 짧아야 표시가 밀리지 않는다.
+	 * @param ttlMs          {@code expiresAt}이 없는 알림을 발생 시각 기준으로 유지하는 시간.
+	 *                       해제 이벤트가 유실돼도 화면에 알림이 영구히 남지 않게 한다.
+	 * @param bootstrapCount 기동 직후 현재 상태를 복원하려고 되감아 읽는 최근 엔트리 수.
+	 * @param batchSize      한 번의 XREAD로 읽을 엔트리 수.
+	 */
+	public record Alert(
+			boolean enabled,
+			String stream,
+			long pollIntervalMs,
+			long ttlMs,
+			int bootstrapCount,
+			int batchSize) {
 	}
 
 	/**

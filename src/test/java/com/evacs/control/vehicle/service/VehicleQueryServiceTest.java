@@ -34,6 +34,7 @@ class VehicleQueryServiceTest {
 		EvacsProperties properties = new EvacsProperties(
 				new EvacsProperties.Redis("test:", "c:%s", "a:%s", "s", 100),
 				new EvacsProperties.Vehicle(30_000, 9),
+				new EvacsProperties.Alert(false, "s:alert", 500, 60_000, 100, 100),
 				new EvacsProperties.Outbox(false, 1000, 10, 3),
 				new EvacsProperties.Sumo(false, "http://127.0.0.1:1", "depot", 1000));
 		service = new VehicleQueryService(vehicleRepository, new H3Support(), properties);

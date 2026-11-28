@@ -25,6 +25,12 @@ src/main/java/com/evacs/control/
     repository/ RedisVehicleRepository        findVehicles/findById/countByType
     domain/     VehicleState, VehicleCountSummary, VehicleType
     dto/        VehicleQueryDto, DensityQueryDto, *Response
+  alert/                                      ── 차량 알림 현황(Redis Stream)
+    controller/ VehicleAlertController        getAlerts/getAlert
+    service/    VehicleAlertService           poll(@Scheduled)/findAlerts/findAlert
+    repository/ RedisYieldAlertRepository     findRecent/findAfter (그룹 없는 XREVRANGE/XREAD)
+    domain/     VehicleAlert
+    dto/        VehicleAlertResponse, VehicleAlertListResponse, VehicleAlertStatusResponse
   emergency/                                  ── 긴급상황(MySQL + Redis)
     controller/ EmergencyController           조회 6종 + 생성/종료
     service/    EmergencyQueryService         findEmergencies/findEmergency/findRoute/findEvents/findCone/findAlertedVehicles
@@ -54,7 +60,9 @@ Outbox만 건드린다. 브로커 발행은 OutboxProcessor가 비동기로 하�
 | GET | `/control/vehicles` | 차량 목록. `minLat/maxLat/minLng/maxLng`, `vehicleType`, `includeStale` |
 | GET | `/control/vehicles/summary` | 전체/유형별 활성 차량 수 |
 | GET | `/control/vehicles/density` | H3 셀별 밀도. `resolution`(기본 9), 영역·유형 필터 |
+| GET | `/control/vehicles/alerts` | 지금 알림이 떠 있는 차량 전체(`evacs:stream:yield-alert`를 따라 읽은 현재 상태) |
 | GET | `/control/vehicles/{vehicleId}` | 차량 단건 |
+| GET | `/control/vehicles/{vehicleId}/alert` | 그 차량에 알림이 왔는지. 없으면 404가 아니라 `alerted=false` |
 | GET | `/control/emergencies` | 긴급상황 목록. `status`, `vehicleId`, `from`, `to`, `limit` |
 | POST | `/control/emergencies` | 생성 → 201 (진행 중 건 있으면 409). `isSumo:true`면 SUMO 모드. `originLat/originLng`를 주면 그 좌표에서, 없으면 차고지에서 출발 |
 | GET | `/control/emergencies/{id}` | 상세 |
@@ -80,6 +88,13 @@ Outbox만 건드린다. 브로커 발행은 OutboxProcessor가 비동기로 하�
 | 긴급차량 영향 셀 | `evacs:emergency:{id}:cone` (String JSON) | Emergency Worker / 이 서버 |
 | 알림 수신 차량 | `evacs:emergency:{id}:alerted` (Set) | Emergency Worker / 이 서버 |
 | 긴급상황 이벤트 | `evacs:stream:emergency-event` (Stream) | 이 서버가 `XADD` / Emergency Worker가 소비 |
+| 차량 알림 이벤트 | `evacs:stream:yield-alert` (Stream) | Alert Worker가 `XADD` / ws-server와 이 서버가 각각 읽음 |
+
+알림 스트림은 **소비자 그룹 없이** 커서(entry id)만 들고 `XREAD`로 따라 읽는다. ws-server가
+차량에 전달하는 그룹(`ws-server`)과 겹치지 않고, ACK를 빠뜨려 PEL이 쌓일 일도 없다
+(관제 경로는 읽기 전용이다). 읽은 결과는 차량별 "지금 떠 있는 알림" 1건으로 접어 메모리에 두고
+`YIELD_ALERT_ISSUED`/`EMERGENCY_ROUTE_UPDATED`는 덮고 `YIELD_ALERT_CLEARED`는 지운다.
+`expiresAt`이 지난 알림과 `evacs.alert.ttl-ms`를 넘긴 알림은 해제 이벤트가 유실돼도 사라진다.
 
 차량 위치의 출처는 **Location Worker가 정제한 상태**다. ws-server가 `stream:vehicle:location`에
 쌓은 원본을 워커가 소비해 중복·역행을 걸러 내고 H3 셀을 붙여 위 세 키에 반영한다
@@ -241,6 +256,10 @@ macOS·Windows Docker Desktop은 host 네트워킹이 옵션이다 — Settings 
 | `EVACS_EMERGENCY_STREAM` | `evacs:stream:emergency-event` |
 | `EVACS_VEHICLE_ACTIVE_TTL_MS` | `5000` (Location Worker의 `INACTIVE_TTL_MS`와 같은 값) |
 | `EVACS_DENSITY_RESOLUTION` | `9` |
+| `EVACS_ALERT_STREAM` | `evacs:stream:yield-alert` (ws-server의 `EVACS_ALERT_STREAM`과 같은 값) |
+| `EVACS_ALERT_STREAM_ENABLED` / `EVACS_ALERT_POLL_INTERVAL_MS` | `true` / `500` |
+| `EVACS_ALERT_TTL_MS` | `60000` — `expiresAt` 없는 알림을 들고 있는 시간 |
+| `EVACS_ALERT_BOOTSTRAP_COUNT` / `EVACS_ALERT_BATCH_SIZE` | `500` / `500` |
 | `EVACS_OUTBOX_ENABLED` / `_POLL_INTERVAL_MS` / `_BATCH_SIZE` / `_MAX_ATTEMPTS` | `true` / `1000` / `100` / `5` |
 | `EVACS_SUMO_ENABLED` | `true` — false면 `isSumo=true` 요청을 400으로 거부한다(실차 운영) |
 | `EVACS_SUMO_BASE_URL` | `http://127.0.0.1:8000` — SUMO 시뮬레이터 app.py |

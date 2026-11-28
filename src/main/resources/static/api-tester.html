@@ -78,8 +78,11 @@ const ENDPOINTS = [
       { name:'minLat', ph:'37.4' }, { name:'maxLat', ph:'37.6' },
       { name:'minLng', ph:'126.6' }, { name:'maxLng', ph:'126.8' },
     ] },
+  { m:'GET', path:'/control/vehicles/alerts', desc:'알림이 떠 있는 차량 전체(yield-alert 스트림)' },
   { m:'GET', path:'/control/vehicles/{vehicleId}', desc:'차량 단건',
     path_params:[ { name:'vehicleId', ph:'AMB_001' } ] },
+  { m:'GET', path:'/control/vehicles/{vehicleId}/alert', desc:'그 차량에 알림이 왔는지',
+    path_params:[ { name:'vehicleId', ph:'EVACS_CAR_000001' } ] },
 
   { m:'GET', path:'/control/emergencies', desc:'긴급상황 목록',
     params:[
