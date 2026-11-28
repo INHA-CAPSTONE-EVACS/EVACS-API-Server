@@ -3,6 +3,8 @@ package com.evacs.control.emergency.controller;
 import com.evacs.control.emergency.dto.AlertedVehiclesResponse;
 import com.evacs.control.emergency.dto.ConeResponse;
 import com.evacs.control.emergency.dto.CreateEmergencyDto;
+import com.evacs.control.emergency.dto.DispatchRouteHistoryResponse;
+import com.evacs.control.emergency.dto.DispatchRouteResponse;
 import com.evacs.control.emergency.dto.EmergencyListResponse;
 import com.evacs.control.emergency.dto.EmergencyQueryDto;
 import com.evacs.control.emergency.dto.EmergencyResponse;
@@ -55,6 +57,23 @@ public class EmergencyController {
 	@GetMapping("/{id}/route")
 	public ResponseEntity<EmergencyRouteResponse> getRoute(@PathVariable String id) {
 		return ResponseEntity.ok(queryService.findRoute(id));
+	}
+
+	/**
+	 * Emergency Worker가 바꾼 최신 경로 조회.
+	 *
+	 * <p>{@code /route}와 다른 자원이다. 그쪽은 생성 요청에 담겨 온 경로이고, 이쪽은 워커가
+	 * 운행 중 다시 계산해 쌓은 경로의 최신 버전이다. 아직 없으면 404가 아니라 available=false.
+	 */
+	@GetMapping("/{id}/dispatch-route")
+	public ResponseEntity<DispatchRouteResponse> getDispatchRoute(@PathVariable String id) {
+		return ResponseEntity.ok(queryService.findDispatchRoute(id));
+	}
+
+	/** 워커가 경로를 바꾼 이력 요약 조회(버전 오름차순, 좌표는 개수만). */
+	@GetMapping("/{id}/dispatch-route/history")
+	public ResponseEntity<DispatchRouteHistoryResponse> getDispatchRouteHistory(@PathVariable String id) {
+		return ResponseEntity.ok(queryService.findDispatchRouteHistory(id));
 	}
 
 	/** 긴급상황 관련 이벤트 전송 이력 조회. */

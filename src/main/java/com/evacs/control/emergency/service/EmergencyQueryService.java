@@ -3,14 +3,18 @@ package com.evacs.control.emergency.service;
 import com.evacs.control.common.error.ApiException;
 import com.evacs.control.common.geo.H3Support;
 import com.evacs.control.emergency.domain.ConeSnapshot;
+import com.evacs.control.emergency.domain.DispatchRoute;
 import com.evacs.control.emergency.domain.Emergency;
 import com.evacs.control.emergency.dto.AlertedVehiclesResponse;
 import com.evacs.control.emergency.dto.ConeResponse;
+import com.evacs.control.emergency.dto.DispatchRouteHistoryResponse;
+import com.evacs.control.emergency.dto.DispatchRouteResponse;
 import com.evacs.control.emergency.dto.EmergencyListResponse;
 import com.evacs.control.emergency.dto.EmergencyQueryDto;
 import com.evacs.control.emergency.dto.EmergencyResponse;
 import com.evacs.control.emergency.dto.EmergencyRouteResponse;
 import com.evacs.control.emergency.dto.EventLogResponse;
+import com.evacs.control.emergency.repository.DispatchRouteRepository;
 import com.evacs.control.emergency.repository.EmergencyRepository;
 import com.evacs.control.emergency.repository.EmergencyRouteRepository;
 import com.evacs.control.emergency.repository.EventLogRepository;
@@ -33,6 +37,7 @@ public class EmergencyQueryService {
 
 	private final EmergencyRepository emergencyRepository;
 	private final EmergencyRouteRepository routeRepository;
+	private final DispatchRouteRepository dispatchRouteRepository;
 	private final EventLogRepository eventLogRepository;
 	private final RedisConeRepository coneRepository;
 	private final RedisAlertRepository alertRepository;
@@ -41,12 +46,14 @@ public class EmergencyQueryService {
 	public EmergencyQueryService(
 			EmergencyRepository emergencyRepository,
 			EmergencyRouteRepository routeRepository,
+			DispatchRouteRepository dispatchRouteRepository,
 			EventLogRepository eventLogRepository,
 			RedisConeRepository coneRepository,
 			RedisAlertRepository alertRepository,
 			H3Support h3) {
 		this.emergencyRepository = emergencyRepository;
 		this.routeRepository = routeRepository;
+		this.dispatchRouteRepository = dispatchRouteRepository;
 		this.eventLogRepository = eventLogRepository;
 		this.coneRepository = coneRepository;
 		this.alertRepository = alertRepository;
@@ -73,6 +80,31 @@ public class EmergencyQueryService {
 	public EmergencyRouteResponse findRoute(String id) {
 		Emergency emergency = require(id);
 		return EmergencyRouteResponse.of(id, routeRepository.findByEmergencyId(emergency.getId()));
+	}
+
+	/**
+	 * Emergency Worker가 실제로 바꾼 최신 경로 조회.
+	 *
+	 * <p>{@link #findRoute}는 생성 요청에 담겨 온 경로(emergency_route)를 돌려준다. 워커가 운행 중
+	 * 다시 계산한 경로는 append-only인 dispatch_route에 쌓이고, 그중 최신 버전이 "지금 가는 길"이다.
+	 *
+	 * <p>긴급상황은 있는데 경로가 아직 없는 것은 정상 상태(워커가 계산 전)라 404가 아니라
+	 * {@code available=false}로 돌린다(cone 조회와 같은 관례).
+	 */
+	public DispatchRouteResponse findDispatchRoute(String id) {
+		Emergency emergency = require(id);
+		// dispatch_route.dispatch_id에는 FK가 없고, 값은 emergency.id의 문자열이다.
+		String dispatchId = emergency.getId().toString();
+		DispatchRoute latest = dispatchRouteRepository.findLatestByDispatchId(dispatchId);
+		return latest == null ? DispatchRouteResponse.empty(dispatchId) : DispatchRouteResponse.from(latest);
+	}
+
+	/** 워커가 경로를 바꾼 이력(버전 오름차순) 조회. 좌표는 개수만 담는다. */
+	public DispatchRouteHistoryResponse findDispatchRouteHistory(String id) {
+		Emergency emergency = require(id);
+		String dispatchId = emergency.getId().toString();
+		return DispatchRouteHistoryResponse.of(
+				dispatchId, dispatchRouteRepository.findVersionSummaries(dispatchId));
 	}
 
 	/** 특정 긴급상황의 이벤트 이력 조회. */

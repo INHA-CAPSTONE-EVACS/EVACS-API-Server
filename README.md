@@ -60,6 +60,8 @@ Outbox만 건드린다. 브로커 발행은 OutboxProcessor가 비동기로 하�
 | GET | `/control/emergencies/{id}` | 상세 |
 | POST | `/control/emergencies/{id}/end` | 종료 (이미 종료면 409) |
 | GET | `/control/emergencies/{id}/route` | 경로 지점 |
+| GET | `/control/emergencies/{id}/dispatch-route` | Emergency Worker가 바꾼 최신 경로(`dispatch_route`). 아직 없으면 `available=false` |
+| GET | `/control/emergencies/{id}/dispatch-route/history` | 경로 변경 이력 요약(버전 오름차순, 좌표는 개수만) |
 | GET | `/control/emergencies/{id}/events` | 이벤트 전송 이력 |
 | GET | `/control/emergencies/{id}/cone` | Worker가 계산한 영향 H3 셀 |
 | GET | `/control/emergencies/{id}/alerted-vehicles` | 알림 수신 확인 차량 |
