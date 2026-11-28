@@ -1,5 +1,6 @@
 package com.evacs.control.emergency.controller;
 
+import com.evacs.control.emergency.dto.AlertDeliveryLogResponse;
 import com.evacs.control.emergency.dto.AlertedVehiclesResponse;
 import com.evacs.control.emergency.dto.ConeResponse;
 import com.evacs.control.emergency.dto.CreateEmergencyDto;
@@ -92,6 +93,17 @@ public class EmergencyController {
 	@GetMapping("/{id}/alerted-vehicles")
 	public ResponseEntity<AlertedVehiclesResponse> getAlertedVehicles(@PathVariable String id) {
 		return ResponseEntity.ok(queryService.findAlertedVehicles(id));
+	}
+
+	/**
+	 * Alert Worker가 남긴 양보 알림 전송 이력 조회.
+	 *
+	 * <p>{@code /alerted-vehicles}는 Redis의 현재 수신 집합이라 긴급상황이 끝나면 비는데,
+	 * 이쪽은 RDS 기록이라 발송·확인·해제 시각까지 남는다.
+	 */
+	@GetMapping("/{id}/alert-logs")
+	public ResponseEntity<AlertDeliveryLogResponse> getAlertDeliveryLogs(@PathVariable String id) {
+		return ResponseEntity.ok(queryService.findAlertDeliveryLogs(id));
 	}
 
 	/** 새로운 긴급상황 생성 요청. */

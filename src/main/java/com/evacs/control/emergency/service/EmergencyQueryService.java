@@ -2,10 +2,12 @@ package com.evacs.control.emergency.service;
 
 import com.evacs.control.common.error.ApiException;
 import com.evacs.control.common.geo.H3Support;
+import com.evacs.control.emergency.domain.AlertDeliveryLog;
 import com.evacs.control.emergency.domain.ConeSnapshot;
 import com.evacs.control.emergency.domain.DispatchRoute;
 import com.evacs.control.emergency.domain.Emergency;
 import com.evacs.control.emergency.dto.AlertedVehiclesResponse;
+import com.evacs.control.emergency.dto.AlertDeliveryLogResponse;
 import com.evacs.control.emergency.dto.ConeResponse;
 import com.evacs.control.emergency.dto.DispatchRouteHistoryResponse;
 import com.evacs.control.emergency.dto.DispatchRouteResponse;
@@ -14,6 +16,7 @@ import com.evacs.control.emergency.dto.EmergencyQueryDto;
 import com.evacs.control.emergency.dto.EmergencyResponse;
 import com.evacs.control.emergency.dto.EmergencyRouteResponse;
 import com.evacs.control.emergency.dto.EventLogResponse;
+import com.evacs.control.emergency.repository.AlertDeliveryLogRepository;
 import com.evacs.control.emergency.repository.DispatchRouteRepository;
 import com.evacs.control.emergency.repository.EmergencyRepository;
 import com.evacs.control.emergency.repository.EmergencyRouteRepository;
@@ -35,9 +38,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class EmergencyQueryService {
 
+	/** 알림 이력 응답 상한. 한 긴급상황에 수백 건이 쌓여도 조회가 터지지 않게 자른다. */
+	private static final int ALERT_LOG_LIMIT = 200;
+
 	private final EmergencyRepository emergencyRepository;
 	private final EmergencyRouteRepository routeRepository;
 	private final DispatchRouteRepository dispatchRouteRepository;
+	private final AlertDeliveryLogRepository alertDeliveryLogRepository;
 	private final EventLogRepository eventLogRepository;
 	private final RedisConeRepository coneRepository;
 	private final RedisAlertRepository alertRepository;
@@ -47,6 +54,7 @@ public class EmergencyQueryService {
 			EmergencyRepository emergencyRepository,
 			EmergencyRouteRepository routeRepository,
 			DispatchRouteRepository dispatchRouteRepository,
+			AlertDeliveryLogRepository alertDeliveryLogRepository,
 			EventLogRepository eventLogRepository,
 			RedisConeRepository coneRepository,
 			RedisAlertRepository alertRepository,
@@ -54,6 +62,7 @@ public class EmergencyQueryService {
 		this.emergencyRepository = emergencyRepository;
 		this.routeRepository = routeRepository;
 		this.dispatchRouteRepository = dispatchRouteRepository;
+		this.alertDeliveryLogRepository = alertDeliveryLogRepository;
 		this.eventLogRepository = eventLogRepository;
 		this.coneRepository = coneRepository;
 		this.alertRepository = alertRepository;
@@ -105,6 +114,21 @@ public class EmergencyQueryService {
 		String dispatchId = emergency.getId().toString();
 		return DispatchRouteHistoryResponse.of(
 				dispatchId, dispatchRouteRepository.findVersionSummaries(dispatchId));
+	}
+
+	/**
+	 * Alert Worker가 남긴 양보 알림 전송 이력 조회(최근 발송 우선).
+	 *
+	 * <p>{@link #findAlertedVehicles}는 Redis의 "지금 수신 확인된 차량 집합"이라 긴급상황이 끝나면
+	 * 사라진다. 실제로 알림이 나갔는지 확인하려면 워커가 RDS에 남긴 이 기록을 봐야 한다.
+	 */
+	public AlertDeliveryLogResponse findAlertDeliveryLogs(String id) {
+		Emergency emergency = require(id);
+		// alert_delivery_log.dispatch_id에도 FK가 없고, 값은 emergency.id의 문자열이다.
+		String dispatchId = emergency.getId().toString();
+		List<AlertDeliveryLog> logs =
+				alertDeliveryLogRepository.findByDispatchId(dispatchId, ALERT_LOG_LIMIT);
+		return AlertDeliveryLogResponse.of(dispatchId, logs);
 	}
 
 	/** 특정 긴급상황의 이벤트 이력 조회. */

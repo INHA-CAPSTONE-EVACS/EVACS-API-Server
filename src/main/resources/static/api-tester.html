@@ -115,6 +115,8 @@ const ENDPOINTS = [
     path_params:[ { name:'id', ph:'UUID' } ] },
   { m:'GET', path:'/control/emergencies/{id}/dispatch-route/history', desc:'경로 변경 이력 요약 (버전 오름차순)',
     path_params:[ { name:'id', ph:'UUID' } ] },
+  { m:'GET', path:'/control/emergencies/{id}/alert-logs', desc:'Alert Worker 알림 전송 이력 (RDS 기록)',
+    path_params:[ { name:'id', ph:'UUID' } ] },
   { m:'GET', path:'/control/emergencies/{id}/events', desc:'이벤트 전송 이력',
     path_params:[ { name:'id', ph:'UUID' } ] },
   { m:'GET', path:'/control/emergencies/{id}/cone', desc:'영향 H3 셀 (미계산이면 available=false)',
