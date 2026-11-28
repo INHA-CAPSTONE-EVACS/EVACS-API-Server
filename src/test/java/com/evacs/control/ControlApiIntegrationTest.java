@@ -180,7 +180,7 @@ class ControlApiIntegrationTest {
 
 	@Test
 	@DisplayName("종료하면 ENDED가 되고 두 번째 종료는 409")
-	void endEmergencyTransitionsOnce() {
+	void endEmergencyTransitionsOnce() throws Exception {
 		CreateEmergencyDto dto = new CreateEmergencyDto(
 				"AMB_003", "FIRE", 37.45, 126.65, null, null, null, null, null, null);
 		String id = http.postForEntity("/control/emergencies", dto, EmergencyResponse.class)
@@ -192,6 +192,15 @@ class ControlApiIntegrationTest {
 		assertThat(ended.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(ended.getBody().status()).isEqualTo("ENDED");
 		assertThat(ended.getBody().endedAt()).isNotNull();
+
+		// 종료 이벤트도 생성 이벤트와 같은 봉투여야 한다 — 메타는 payload가 아니라 스트림 최상위 필드.
+		MapRecord<String, Object, Object> endedRecord = awaitStreamRecord("EMERGENCY_ENDED");
+		assertThat(endedRecord.getValue()).containsEntry("aggregateId", id);
+		assertThat(endedRecord.getValue()).containsEntry("schemaVersion", "1");
+		assertThat(endedRecord.getValue()).containsEntry("producer", "control-api");
+		JsonNode endedPayload = objectMapper.readTree((String) endedRecord.getValue().get("payload"));
+		assertThat(endedPayload.has("schemaVersion")).isFalse();
+		assertThat(endedPayload.has("producer")).isFalse();
 
 		ResponseEntity<String> again =
 				http.postForEntity("/control/emergencies/{id}/end", null, String.class, id);
@@ -348,15 +357,25 @@ class ControlApiIntegrationTest {
 
 	/** 발행은 비동기다. 최대 10초까지 스트림을 들여다본다. */
 	private MapRecord<String, Object, Object> awaitStreamRecord() throws InterruptedException {
+		return awaitStreamRecord(null);
+	}
+
+	/** 특정 eventType이 스트림에 들어올 때까지 기다린다(null이면 첫 레코드). */
+	private MapRecord<String, Object, Object> awaitStreamRecord(String eventType) throws InterruptedException {
 		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
 		while (System.nanoTime() < deadline) {
 			List<MapRecord<String, Object, Object>> records =
 					redis.opsForStream().range(STREAM_KEY, org.springframework.data.domain.Range.unbounded());
-			if (records != null && !records.isEmpty()) {
-				return records.get(0);
+			if (records != null) {
+				for (MapRecord<String, Object, Object> record : records) {
+					if (eventType == null || eventType.equals(record.getValue().get("eventType"))) {
+						return record;
+					}
+				}
 			}
 			Thread.sleep(100);
 		}
-		throw new AssertionError("브로커 스트림에 이벤트가 발행되지 않았습니다: " + STREAM_KEY);
+		throw new AssertionError(
+				"브로커 스트림에 이벤트가 발행되지 않았습니다: " + STREAM_KEY + " eventType=" + eventType);
 	}
 }

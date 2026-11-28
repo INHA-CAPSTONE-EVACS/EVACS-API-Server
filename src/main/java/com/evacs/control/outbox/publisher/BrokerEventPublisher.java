@@ -2,7 +2,6 @@ package com.evacs.control.outbox.publisher;
 
 import com.evacs.control.common.config.EvacsProperties;
 import com.evacs.control.outbox.domain.OutboxEvent;
-import com.evacs.control.outbox.domain.EmergencyEventType;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -31,6 +30,11 @@ public class BrokerEventPublisher implements EventPublisher {
 
 	private static final Logger log = LoggerFactory.getLogger(BrokerEventPublisher.class);
 
+	/** 이벤트 봉투(스트림 필드)의 버전. payload 구조를 바꿀 때만 올린다. */
+	private static final String SCHEMA_VERSION = "1";
+	/** 발행 주체. Worker가 여러 생산자를 구분하는 데 쓴다. */
+	private static final String PRODUCER = "control-api";
+
 	private final StringRedisTemplate redis;
 	private final EvacsProperties properties;
 
@@ -44,10 +48,10 @@ public class BrokerEventPublisher implements EventPublisher {
 		Map<String, String> fields = new LinkedHashMap<>();
 		fields.put("eventId", event.getId().toString());
 		fields.put("eventType", event.getEventType());
-		if (EmergencyEventType.EMERGENCY_CREATED.name().equals(event.getEventType())) {
-			fields.put("schemaVersion", "1");
-			fields.put("producer", "control-api");
-		}
+		// 스키마 메타는 이벤트 종류와 무관하게 모든 긴급상황 이벤트(생성·종료)에 같은 위치로 넣는다.
+		// 종류마다 다르면 Worker가 종료 이벤트에서만 메타를 못 찾아 분기가 갈린다.
+		fields.put("schemaVersion", SCHEMA_VERSION);
+		fields.put("producer", PRODUCER);
 		fields.put("aggregateType", event.getAggregateType());
 		fields.put("aggregateId", event.getAggregateId());
 		fields.put("occurredAt", event.getCreatedAt().toString());
